@@ -1,8 +1,109 @@
 #!/bin/bash
-# Here do anything needed to install the service
-# i.e. apt-get install -y foo  or  bzr branch http://myserver/mycode /srv/webroot
-# Make sure this hook exits cleanly and is idempotent, common problems here are
-# failing to account for a debconf question on a dependency, or trying to pull
-# from github without installing git first.
 
-apt-get install -y errbit
+set -ex
+
+chmod +x $CHARM_DIR
+
+repository=`config-get repository`
+release=`config-get release`
+
+# Add the 10gen PPA
+apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 7F0CEB10
+echo 'deb http://downloads-distro.mongodb.org/repo/ubuntu-upstart dist 10gen' | tee /etc/apt/sources.list.d/mongodb.list
+apt-get update
+
+apt-get install -y libxml2 libxml2-dev libxslt-dev libcurl4-openssl-dev build-essential \
+				zlib1g-dev libssl-dev libreadline6-dev libyaml-dev ruby1.9.3 nginx git-core mongodb-10gen
+
+export LANG=en_us.UTF-8
+export LC_ALL=en_US.UTF-8
+
+juju-log "Bundler Ho!" #hat tip @ Marco Ceppi
+gem install --no-ri --no-rdoc bundler
+
+
+set +e 
+id errbit
+user_exists=$?
+set -e
+
+if [ $user_exists -gt 0 ]; then
+	juju-log "Create errbit user"
+	adduser --disabled-password --gecos 'Errbit' errbit
+fi
+
+if [ -f "/etc/nginx/sites-enabled/default" ]; then
+				rm -f /etc/nginx/sites-enabled/default
+fi
+
+if [ -d "/home/errbit/errbit" ]; then
+				juju-log "Updating repository..."
+				cd /home/errbit/errbit
+				sudo -u errbit -H git fetch
+
+	# Determine branch or tag currently assigned
+
+  current_release=$(git describe --tags)
+  current_release_is_branch=""
+
+  if [ `git symbolic-ref -q HEAD` ]; then
+    current_release=$(git symbolic-ref -q HEAD)
+    current_release=${current_release##refs/heads/}
+    current_release_is_branch=true
+  fi
+
+  if [ "$current_release" != "$release" ] && [ ! -z "$release" ]; then
+    juju-log "Placing $repository at $release"
+    if [ $current_release_is_branch ]; then
+      if git for-each-ref --format "%(refname:short)" refs/heads/ | grep -Eq "^$branch$"; then
+        juju-log "We already have this branch branched. Delete it for a clean pull"
+        sudo -u errbit -H git branch -D $release
+      fi
+      sudo -u errbit -H git checkout -b $release origin/$release
+    else
+      # This is a headless one-time checkout.
+      sudo -u errbit -H git checkout $release
+    fi
+
+    touch $CHARM_DIR/.migrate
+  else
+    if [ $current_release_is_branch ]; then
+      sudo -u errbit -H git pull
+    fi
+  fi
+
+#  rm -f .foreman
+else
+  juju-log "Fetching source from $repository..."
+  sudo -u errbit -H git clone $repository /home/errbit/errbit
+  cd /home/errbit/errbit
+
+  if [ ! -z "$release" ]; then
+    juju-log "Checkout out $release tag"
+    git checkout $release
+  else
+    current_branch=$(git symbolic-ref -q HEAD)
+    current_branch_name=${branch_name##refs/heads/}
+
+    if [ "$current_branch_name" != "$branch" ]; then
+      juju-log "Moving new repository to $branch"
+      git checkout -b $branch origin/$branch
+    fi
+  fi
+
+  #sudo -u discourse -H cp config/redis.yml.sample config/redis.yml
+  #mkdir -p ../.backup
+fi
+
+#Make sure errbit owns the directory
+chown -R errbit:errbit /home/errbit/errbit
+
+sudo -u errbit -H bundle install --without test --deployment
+sudo -u errbit -H bundle exec rake errbit:bootstrap
+
+# If the errbit install is fresh, we need to gererate a secret token
+if [ -f "/home/errbit/errbit/config/initializers/secret_token.rb" ]; then
+	echo "Errbit::Application.config.secret_token = '$(bundle exec rake secret)'" > config/initializers/secret_token.rb
+fi
+
+sudo -u errbit -H RAILS_ENV=production bundle exec rake assets:precompile

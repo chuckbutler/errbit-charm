@@ -1,2 +1,40 @@
 #!/bin/bash
-# config-changed occurs everytime a new configuration value is updated (juju set)
+
+set -ex
+
+#setup variables
+declare errbit_host=`config-get errbit-host`
+declare errbit_port=`config-get errbit-host`
+declare errbit_smtp_user=`config-get smtp_user`
+declare errbit_smtp_pass=`config-get smtp_pass`
+declare errbit_smtp_host=`config-get smtp_host`
+declare errbit_smtp_domain=`config-get smtp_domain`
+declare errbit_smtp_port=`config-get smtp_port`
+declare errbit_starttls_auto=`config-get starttls`
+declare errbit_gravatar=`config-get gravatar`
+declare errbit_confirm_resolve=`config-get confirm_resolve`
+declare errbit_per_app_notice=`config-get per_app_notice`
+declare errbit_host=`config-get hostname`
+
+#Set this as an override for vanity domains, if one does not
+# exist, default to the FQDN of the unit
+if [ ! $errbit_host == "" ]; then
+  errbit_host=`config-get fqdn`
+fi
+
+
+#clear existing configuration
+if [ -x "/home/errbit/errbit/config/config.yml" ]; then
+  rm /home/errbit/errbit/config/config.yml
+fi
+
+if [ -x "/home/errbit/errbit/.env" ]; then
+	rm /home/errbit/errbit/.env
+fi
+
+
+. $CHARM_DIR/lib/file.bash
+
+juju-log "Configuring Errbit"
+
+ch_template_file 0644 errbit:errbit $CHARM_DIR/contrib/errbit/config.tpl /home/errbit/errbit/config/config.yml

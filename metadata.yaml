@@ -1,17 +1,15 @@
 name: errbit
-summary: <Fill in summary here>
-maintainer: Charles Butler <Charles.Butler@bushido>
+summary: Errbit is a tool for collecting and managing errors. 
+maintainer: Charles Butler <chuck@dasroot.net>
 description: |
-  <Multi-line description here>
+  
 categories:
-  - misc
+  - application
 subordinate: false
 provides:
   provides-relation:
-    interface: interface-name
+    interface: http
 requires:
   requires-relation:
-    interface: interface-name
-peers:
-  peer-relation:
-    interface: interface-name
+    interface: db
+
